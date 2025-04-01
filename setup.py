@@ -3,8 +3,12 @@ import sys
 import os
 
 def install_dependencies():
+    # Get the directory containing setup.py
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    requirements_path = os.path.join(current_dir, 'requirements.txt')
+    
     # First, uninstall existing torch packages to avoid conflicts
-    subprocess.check_call([sys.executable, "-m", "pip", "uninstall", "-y", "torch", "torchaudio", "torchvision"])
+    subprocess.check_call([sys.executable, "-m", "pip", "uninstall", "-y", "torch", "torchaudio", "torchvision", "pytorch-lightning"])
     
     # Install PyTorch with CUDA support
     subprocess.check_call([
@@ -16,14 +20,7 @@ def install_dependencies():
     ])
     
     # Install other dependencies
-    subprocess.check_call([sys.executable, "-m", "pip", "install", "-r", "requirements.txt"])
-    
-    # Install torch-geometric with specific CUDA version
-    subprocess.check_call([
-        sys.executable, "-m", "pip", "install",
-        "torch-geometric==2.3.1",
-        "--no-deps"
-    ])
+    subprocess.check_call([sys.executable, "-m", "pip", "install", "-r", requirements_path])
 
 def setup_cuda():
     # Set CUDA environment variables to avoid duplicate registration

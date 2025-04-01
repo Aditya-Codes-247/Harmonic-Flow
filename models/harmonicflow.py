@@ -17,33 +17,59 @@ class HarmonicFlow(nn.Module):
     """
     Complete HarmonicFlow model that integrates all components.
     """
-    def __init__(
-        self,
-        encoder=None,
-        preprocessor=None,
-        latent=None,
-        generative=None,
-        style_post=None,
-        latent_dim=config.LATENT_DIM,
-        hidden_dim=config.HIDDEN_DIM
-    ):
+    def __init__(self, input_dim=512, latent_dim=256, hidden_dim=512):
         super().__init__()
         
-        # Initialize components if not provided
-        self.encoder = encoder if encoder else MultiModalEncoder(latent_dim=latent_dim)
-        self.preprocessor = preprocessor if preprocessor else PreProcessingModule()
-        self.latent = latent if latent else LatentSpaceModule(latent_dim=latent_dim, hidden_dim=hidden_dim)
-        self.generative = generative if generative else GenerativeModule(input_dim=latent_dim, hidden_dim=hidden_dim)
-        self.style_post = style_post if style_post else StyleAndPostProcessingModule(input_dim=latent_dim)
-        
-        # Integration layers
-        self.latent_to_diffusion = nn.Sequential(
-            nn.Linear(latent_dim, hidden_dim),
-            nn.LayerNorm(hidden_dim),
-            nn.SiLU(),
-            nn.Linear(hidden_dim, latent_dim * len(config.INSTRUMENTS))
+        # Latent space module
+        self.latent_space = LatentSpaceModule(
+            input_dim=input_dim,
+            latent_dim=latent_dim,
+            hidden_dim=hidden_dim
         )
         
+        # Audio processing layers
+        self.audio_encoder = nn.Sequential(
+            nn.Linear(input_dim, hidden_dim),
+            nn.ReLU(),
+            nn.Linear(hidden_dim, hidden_dim),
+            nn.ReLU()
+        )
+        
+        self.audio_decoder = nn.Sequential(
+            nn.Linear(hidden_dim, hidden_dim),
+            nn.ReLU(),
+            nn.Linear(hidden_dim, input_dim)
+        )
+        
+        # Emotion conditioning
+        self.emotion_embedding = nn.Embedding(4, hidden_dim)  # 4 emotion categories
+        
+    def forward(self, x, emotion_idx=None):
+        # Encode audio
+        audio_features = self.audio_encoder(x)
+        
+        # Get latent representation
+        z = self.latent_space.encode(audio_features)
+        
+        # Apply emotion conditioning if provided
+        if emotion_idx is not None:
+            emotion_embedding = self.emotion_embedding(emotion_idx)
+            z = z + emotion_embedding
+        
+        # Decode
+        decoded = self.audio_decoder(z)
+        
+        return decoded
+    
+    def generate(self, z, emotion_idx=None):
+        # Apply emotion conditioning if provided
+        if emotion_idx is not None:
+            emotion_embedding = self.emotion_embedding(emotion_idx)
+            z = z + emotion_embedding
+        
+        # Decode
+        return self.audio_decoder(z)
+    
     def encode(self, audio=None, text=None, image=None):
         """
         Encode inputs to latent representation.
@@ -57,7 +83,7 @@ class HarmonicFlow(nn.Module):
             latent: Latent representation
             features: Audio features
         """
-        return self.encoder(audio, text, image)
+        return self.audio_encoder(audio)
     
     def preprocess(self, mixed_audio, spectrograms=None):
         """
@@ -70,7 +96,7 @@ class HarmonicFlow(nn.Module):
         Returns:
             processed: Preprocessed output
         """
-        return self.preprocessor(mixed_audio, spectrograms)
+        return self.audio_encoder(mixed_audio)
         
     def generate(
         self,
@@ -118,23 +144,18 @@ class HarmonicFlow(nn.Module):
             latent = torch.randn(batch_size, config.LATENT_DIM, device=next(self.parameters()).device)
         
         # Process through latent space module
-        integrated_latent, latent_outputs = self.latent(latent, feedback)
+        integrated_latent, latent_outputs = self.latent_space(latent, feedback)
         all_outputs['latent'] = latent_outputs
         
         # Convert latent to diffusion model input
-        diffusion_input = self.latent_to_diffusion(integrated_latent)
+        diffusion_input = self.audio_decoder(integrated_latent)
         diffusion_input = diffusion_input.view(
             diffusion_input.size(0),
-            len(config.INSTRUMENTS) * config.LATENT_DIM,
             -1  # Sequence length determined by the module
         )
         
         # Generate with diffusion model
-        generated_raw = self.generative.generate(
-            batch_size=batch_size,
-            instrument_idx=instrument_idx,
-            emotion_idx=emotion_idx
-        )
+        generated_raw = self.audio_decoder(diffusion_input)
         all_outputs['generative'] = {'raw_output': generated_raw}
         
         # Apply style transfer and post-processing
@@ -250,18 +271,17 @@ class HarmonicFlow(nn.Module):
         latent, features = self.encode(mixed_mel, text, image)
         
         # Process through latent space
-        integrated_latent, _ = self.latent(latent)
+        integrated_latent, _ = self.latent_space(latent)
         
         # Convert to diffusion input
-        diffusion_input = self.latent_to_diffusion(integrated_latent)
+        diffusion_input = self.audio_decoder(integrated_latent)
         diffusion_input = diffusion_input.view(
             batch_size,
-            len(config.INSTRUMENTS) * config.LATENT_DIM,
             -1
         )
         
         # Sample timestep
-        t = torch.randint(0, self.generative.diffusion_model.num_steps, (batch_size,), device=device)
+        t = torch.randint(0, self.audio_decoder.num_steps, (batch_size,), device=device)
         
         # Create target for diffusion
         target_diffusion = torch.cat(
@@ -270,26 +290,21 @@ class HarmonicFlow(nn.Module):
         )
         
         # Add noise according to timestep (forward process)
-        noisy_input, noise = self.generative.diffusion_model.q_sample(target_diffusion, t)
+        noisy_input, noise = self.audio_decoder.diffusion_model.q_sample(target_diffusion, t)
         
         # Predict noise
-        pred_noise = self.generative(
-            noisy_input, 
-            t, 
-            instrument_idx=instrument_idx, 
-            emotion_idx=emotion_idx
-        )
+        pred_noise = self.audio_decoder(noisy_input)
         
         # Diffusion loss
         diffusion_loss = F.mse_loss(pred_noise, noise)
         
         # Reconstruction loss for latent space
-        latent_recon = self.latent.dynamic_latent.decode(latent)
+        latent_recon = self.latent_space.dynamic_latent.decode(latent)
         latent_loss = F.mse_loss(latent_recon, mixed_mel.reshape(batch_size, -1))
         
         # KL divergence for VAE
-        mu = self.latent.dynamic_latent.mu
-        logvar = self.latent.dynamic_latent.logvar
+        mu = self.latent_space.dynamic_latent.mu
+        logvar = self.latent_space.dynamic_latent.logvar
         kl_loss = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp()) / batch_size
         
         # Style transfer loss (if style_idx is provided)
