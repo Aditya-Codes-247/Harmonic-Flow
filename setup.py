@@ -7,8 +7,18 @@ def install_dependencies():
     current_dir = os.path.dirname(os.path.abspath(__file__))
     requirements_path = os.path.join(current_dir, 'requirements.txt')
     
-    # First, uninstall existing torch packages to avoid conflicts
-    subprocess.check_call([sys.executable, "-m", "pip", "uninstall", "-y", "torch", "torchaudio", "torchvision", "pytorch-lightning"])
+    # First, uninstall existing packages to avoid conflicts
+    packages_to_remove = [
+        "torch", "torchaudio", "torchvision", "pytorch-lightning",
+        "numpy", "tensorboard", "tqdm", "matplotlib", "scikit-learn",
+        "transformers", "pillow"
+    ]
+    
+    for package in packages_to_remove:
+        try:
+            subprocess.check_call([sys.executable, "-m", "pip", "uninstall", "-y", package])
+        except subprocess.CalledProcessError:
+            pass  # Package might not be installed
     
     # Install PyTorch with CUDA support
     subprocess.check_call([
@@ -27,9 +37,18 @@ def setup_cuda():
     os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'  # Suppress TF logging
     os.environ['CUDA_VISIBLE_DEVICES'] = '0'  # Use first GPU
 
+def create_directories():
+    # Create necessary directories
+    directories = ['checkpoints', 'logs', 'plots', 'data']
+    for directory in directories:
+        os.makedirs(directory, exist_ok=True)
+
 if __name__ == "__main__":
     print("Setting up CUDA environment...")
     setup_cuda()
+    
+    print("Creating necessary directories...")
+    create_directories()
     
     print("Installing dependencies...")
     install_dependencies()

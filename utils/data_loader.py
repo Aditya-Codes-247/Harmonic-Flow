@@ -1,28 +1,63 @@
+import os
 import torch
 from torch.utils.data import Dataset
-import os
 import torchaudio
+import numpy as np
+from pathlib import Path
 from config.config import Config
 
 class SlakhDataset(Dataset):
-    def __init__(self, data_dir, split='train'):
-        self.data_dir = os.path.join(data_dir, split)
-        self.tracks = sorted([d for d in os.listdir(self.data_dir) if d.startswith('Track')])
+    def __init__(self, root_dir, split='train', transform=None):
+        """
+        Initialize the Slakh2100 dataset.
+        
+        Args:
+            root_dir (str): Root directory of the dataset
+            split (str): Dataset split ('train', 'validation', or 'test')
+            transform: Optional transform to apply to the audio
+        """
+        self.root_dir = Path(root_dir)
+        self.split = split
+        self.transform = transform
+        
+        # Get all audio files in the split directory
+        self.audio_files = list(self.root_dir / split / 'mixed' / 'audio').glob('*.wav')
+        
+        # Load instrument mappings
+        self.instruments = ['bass', 'drums', 'guitar', 'piano']
         
     def __len__(self):
-        return len(self.tracks)
-        
+        return len(self.audio_files)
+    
     def __getitem__(self, idx):
-        track = self.tracks[idx]
-        track_dir = os.path.join(self.data_dir, track)
+        # Get mixed audio path
+        mixed_audio_path = self.audio_files[idx]
         
-        # Load audio files
-        audio_files = {}
-        for instrument in ['bass', 'drums', 'guitar', 'piano']:
-            file_path = os.path.join(track_dir, f'{instrument}.wav')
-            waveform, sample_rate = torchaudio.load(file_path)
-            if sample_rate != Config.sample_rate:
-                waveform = torchaudio.functional.resample(waveform, sample_rate, Config.sample_rate)
-            audio_files[instrument] = waveform
-            
-        return audio_files 
+        # Get corresponding instrument audio paths
+        audio_dict = {}
+        for instrument in self.instruments:
+            instrument_path = mixed_audio_path.parent.parent / instrument / 'audio' / mixed_audio_path.name
+            if instrument_path.exists():
+                audio_dict[instrument] = instrument_path
+        
+        # Load mixed audio
+        mixed_audio, sample_rate = torchaudio.load(mixed_audio_path)
+        
+        # Load individual instrument audio
+        instrument_audio = {}
+        for instrument, path in audio_dict.items():
+            audio, _ = torchaudio.load(path)
+            instrument_audio[instrument] = audio
+        
+        # Apply transforms if any
+        if self.transform:
+            mixed_audio = self.transform(mixed_audio)
+            for instrument in instrument_audio:
+                instrument_audio[instrument] = self.transform(instrument_audio[instrument])
+        
+        return {
+            'mixed_audio': mixed_audio,
+            'audio': instrument_audio,
+            'sample_rate': sample_rate,
+            'path': str(mixed_audio_path)
+        } 
