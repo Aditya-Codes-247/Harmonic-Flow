@@ -1,6 +1,6 @@
 # HarmonicFlow: Audio-to-Music Generative AI Model
 
-HarmonicFlow is a state-of-the-art generative AI model for multi-track music generation and processing. It can generate coherent multi-instrument music tracks, perform style transfer between genres, and create immersive spatial audio outputs.
+This is a Kaggle-optimized version of HarmonicFlow for training on the Slakh2100 test dataset.
 
 ## Features
 
@@ -14,84 +14,39 @@ HarmonicFlow is a state-of-the-art generative AI model for multi-track music gen
 - **Genre-Adaptive Layers**: Fine-tune outputs for specific musical genres
 - **Spatial Audio Rendering**: Generate immersive 3D audio outputs with binaural rendering
 
-## Installation
+## Setup Instructions for Kaggle Notebook
 
-1. Clone this repository:
-```bash
-git clone https://github.com/yourusername/harmonicflow.git
-cd harmonicflow
+1. Clone this repository in your Kaggle notebook:
+```python
+!git clone https://github.com/yourusername/harmonicflow.git
+%cd harmonicflow
 ```
 
-2. Install the required dependencies:
-```bash
-pip install -r requirements.txt
+2. Install dependencies:
+```python
+!pip install -r requirements.txt
 ```
 
-3. Download the Slakh2100 dataset following the instructions in [data/README.md](data/README.md).
-
-## Dataset Preparation
-
-HarmonicFlow is trained on the [Slakh2100](https://www.slakh.com/) dataset, which contains 2100 high-quality, multi-track songs with separate stems for different instruments.
-
-1. Follow the instructions in the original [dataset README](data/README.md) to download and extract the dataset.
-2. Ensure that the data is organized in the `data/slakh2100/` directory with the following structure:
-```
-data/slakh2100/
- └─── train/
-       └─── Track00001/
-             └─── bass.wav
-             └─── drums.wav
-             └─── guitar.wav
-             └─── piano.wav
-       ...
- └─── validation/
-       ...
- └─── test/
-       ...
+3. Download and setup the test dataset:
+```python
+!python setup_dataset.py
 ```
 
-## Training
-
-To train the HarmonicFlow model from scratch:
-
-```bash
-python train.py --data_dir data/slakh2100 --batch_size 16 --epochs 100
+4. Start training:
+```python
+!python train.py
 ```
 
-Additional training options:
-```
---lr: Learning rate (default: 5e-5)
---hidden_dim: Hidden dimension size (default: 1024)
---latent_dim: Latent dimension size (default: 256)
---checkpoint_dir: Directory to save checkpoints (default: checkpoints)
---resume: Resume training from latest checkpoint
---seed: Random seed for reproducibility (default: 42)
-```
+## Training Parameters
 
-Monitor training progress with TensorBoard:
-```bash
-tensorboard --logdir logs
-```
+The model is configured with the following default parameters:
+- Batch size: 8
+- Learning rate: 5e-5
+- Number of epochs: 100
+- Latent dimension: 256
+- Hidden dimension: 1024
 
-## Evaluation
-
-To evaluate a trained model:
-
-```bash
-python evaluate.py --checkpoint checkpoints/best.pt --data_dir data/slakh2100 --compute_metrics
-```
-
-To generate samples with specific style and emotion:
-
-```bash
-python evaluate.py --checkpoint checkpoints/best.pt --style 2 --emotion 1 --num_samples 5
-```
-
-To generate samples using text prompts:
-
-```bash
-python evaluate.py --checkpoint checkpoints/best.pt --use_text --text_prompt "An energetic jazz composition with walking bass and brushed drums"
-```
+You can modify these parameters in `config/config.py` or pass them as command-line arguments to `train.py`.
 
 ## Model Architecture
 
@@ -122,67 +77,19 @@ HarmonicFlow consists of several integrated modules:
    - Post-Processing GAN: Handles mixing, EQ, compression, etc.
    - Spatial Audio Renderer: Creates immersive 3D audio outputs
 
-## Example Usage
+## Dataset
 
-### Basic generation:
+This version uses the Slakh2100 test dataset (7GB) for training. The dataset includes:
+- Multi-track audio files
+- Separate stems for different instruments (bass, drums, guitar, piano)
+- Training, validation, and test splits
 
+## Monitoring Training
+
+Monitor training progress with TensorBoard:
 ```python
-import torch
-from models.harmonicflow import HarmonicFlow
-
-# Initialize model
-model = HarmonicFlow().to(device)
-
-# Load checkpoint
-checkpoint = torch.load("checkpoints/best.pt", map_location=device)
-model.load_state_dict(checkpoint["model"])
-model.eval()
-
-# Generate with text prompt
-generated_audio = model.generate(
-    text=["A calm piano melody with jazz drums and acoustic bass"],
-    style_idx=torch.tensor([3]),  # Jazz style
-    emotion_idx=torch.tensor([2]),  # Calm/peaceful emotion
-    batch_size=1
-)
-
-# Process the generated output
-# ...
-```
-
-### Using with custom audio input:
-
-```python
-import torchaudio
-from utils import compute_mel_spectrogram
-
-# Load reference audio
-waveform, sample_rate = torchaudio.load("reference.wav")
-if sample_rate != 22050:
-    waveform = torchaudio.functional.resample(waveform, sample_rate, 22050)
-
-# Compute mel spectrogram
-mel_spec = compute_mel_spectrogram(waveform)
-
-# Generate new tracks based on reference
-generated_audio = model.generate(
-    audio=mel_spec,
-    genre_idx=torch.tensor([5]),  # Rock genre
-    batch_size=1
-)
-```
-
-## Citation
-
-If you use HarmonicFlow in your research, please cite:
-
-```
-@article{harmonicflow2023,
-  title={HarmonicFlow: Multi-track Music Generation with Neural Audio Graphs and Hierarchical Attention},
-  author={Your Name},
-  journal={arXiv preprint arXiv:XXXX.XXXXX},
-  year={2023}
-}
+%load_ext tensorboard
+%tensorboard --logdir logs
 ```
 
 ## License
