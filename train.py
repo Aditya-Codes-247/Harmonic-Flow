@@ -9,11 +9,28 @@ from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
 from tqdm import tqdm
 import random
+import matplotlib.pyplot as plt
+import seaborn as sns
+from sklearn.metrics import confusion_matrix, accuracy_score
+import pickle
+import logging
+from datetime import datetime
 
 import config
 from data_loader import create_dataloader, AudioTransforms
 from models.harmonicflow import HarmonicFlow
 from utils import set_seed, save_checkpoint, load_checkpoint, log_metrics, visualize_spectrogram
+from utils.data_loader import SlakhDataset
+
+# Set up logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler('training.log'),
+        logging.StreamHandler()
+    ]
+)
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Train HarmonicFlow model")
@@ -237,6 +254,57 @@ def validate(model, val_loader, epoch, args, writer, step):
     
     return avg_val_loss
 
+def plot_training_curves(train_losses, val_losses, save_dir='plots'):
+    os.makedirs(save_dir, exist_ok=True)
+    
+    plt.figure(figsize=(10, 6))
+    plt.plot(train_losses, label='Training Loss')
+    plt.plot(val_losses, label='Validation Loss')
+    plt.title('Training and Validation Losses')
+    plt.xlabel('Epoch')
+    plt.ylabel('Loss')
+    plt.legend()
+    plt.savefig(os.path.join(save_dir, 'loss_curves.png'))
+    plt.close()
+
+def plot_confusion_matrix(y_true, y_pred, save_dir='plots'):
+    cm = confusion_matrix(y_true, y_pred)
+    plt.figure(figsize=(10, 8))
+    sns.heatmap(cm, annot=True, fmt='d', cmap='Blues')
+    plt.title('Confusion Matrix')
+    plt.ylabel('True Label')
+    plt.xlabel('Predicted Label')
+    plt.savefig(os.path.join(save_dir, 'confusion_matrix.png'))
+    plt.close()
+
+def evaluate_model(model, val_loader, criterion, device):
+    model.eval()
+    total_loss = 0
+    all_predictions = []
+    all_targets = []
+    
+    with torch.no_grad():
+        for batch in val_loader:
+            # Move data to device
+            batch = {k: v.to(device) for k, v in batch.items()}
+            
+            # Forward pass
+            outputs = model(batch)
+            loss = criterion(outputs, batch['target'])
+            
+            total_loss += loss.item()
+            
+            # Collect predictions and targets
+            predictions = outputs.argmax(dim=1)
+            all_predictions.extend(predictions.cpu().numpy())
+            all_targets.extend(batch['target'].cpu().numpy())
+    
+    # Calculate metrics
+    accuracy = accuracy_score(all_targets, all_predictions)
+    avg_loss = total_loss / len(val_loader)
+    
+    return avg_loss, accuracy, all_predictions, all_targets
+
 def train(args):
     # Set random seeds
     set_seed(args.seed)
@@ -244,6 +312,7 @@ def train(args):
     # Create directories
     os.makedirs(args.checkpoint_dir, exist_ok=True)
     os.makedirs(args.log_dir, exist_ok=True)
+    os.makedirs('plots', exist_ok=True)
     
     # Create tensorboard writer
     writer = SummaryWriter(log_dir=args.log_dir)
@@ -316,6 +385,9 @@ def train(args):
     # Training loop
     print(f"Starting training for {args.epochs} epochs")
     
+    train_losses = []
+    val_losses = []
+    
     for epoch in range(start_epoch, args.epochs):
         # Train for one epoch
         step = train_epoch(
@@ -366,6 +438,33 @@ def train(args):
             loss=val_loss if (epoch + 1) % int(1 / args.val_check_interval) == 0 else 0.0,
             path=os.path.join(args.checkpoint_dir, "latest.pt")
         )
+        
+        # Log metrics
+        train_losses.append(val_loss)
+        val_losses.append(val_loss)
+        
+        # Log to tensorboard
+        writer.add_scalar('Loss/val', val_loss, epoch)
+        
+        # Log training and validation losses
+        print(f"Epoch {epoch+1}/{args.epochs}:")
+        print(f"Training Loss: {val_loss:.4f}")
+        print(f"Validation Loss: {val_loss:.4f}")
+    
+    # Plot training curves
+    plot_training_curves(train_losses, val_losses)
+    
+    # Plot confusion matrix
+    plot_confusion_matrix(all_targets, all_predictions)
+    
+    # Final evaluation
+    print("\nFinal Evaluation:")
+    print(f"Best Validation Loss: {best_val_loss:.4f}")
+    
+    # Save final model
+    with open(os.path.join('plots', 'final_model.pkl'), 'wb') as f:
+        pickle.dump(model, f)
+    print("Saved final model")
     
     writer.close()
     print("Training completed!")
