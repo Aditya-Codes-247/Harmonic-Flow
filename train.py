@@ -17,12 +17,11 @@ import logging
 from datetime import datetime
 import json
 
-import config
+from config.config import Config
 from data_loader import create_dataloader, AudioTransforms
 from models.harmonicflow import HarmonicFlow
 from utils import set_seed, save_checkpoint, load_checkpoint, log_metrics, visualize_spectrogram, get_project_root
 from utils.data_loader import SlakhDataset
-from config.config import Config
 
 # Set up logging
 logging.basicConfig(
@@ -73,27 +72,25 @@ def parse_args():
     
     # Data parameters
     parser.add_argument("--data_dir", type=str, default="data/slakh2100", help="Path to Slakh2100 dataset")
-    parser.add_argument("--batch_size", type=int, default=config.BATCH_SIZE, help="Batch size")
+    parser.add_argument("--batch_size", type=int, default=Config.batch_size, help="Batch size")
     parser.add_argument("--num_workers", type=int, default=4, help="Number of workers for data loading")
     
     # Model parameters
-    parser.add_argument("--latent_dim", type=int, default=config.LATENT_DIM, help="Latent dimension")
-    parser.add_argument("--hidden_dim", type=int, default=config.HIDDEN_DIM, help="Hidden dimension")
+    parser.add_argument("--latent_dim", type=int, default=Config.latent_dim, help="Latent dimension")
+    parser.add_argument("--hidden_dim", type=int, default=Config.hidden_dim, help="Hidden dimension")
     
     # Training parameters
-    parser.add_argument("--epochs", type=int, default=config.NUM_EPOCHS, help="Number of epochs")
-    parser.add_argument("--lr", type=float, default=config.LEARNING_RATE, help="Learning rate")
-    parser.add_argument("--weight_decay", type=float, default=config.WEIGHT_DECAY, help="Weight decay")
-    parser.add_argument("--grad_accum_steps", type=int, default=config.GRADIENT_ACCUMULATION_STEPS, 
-                        help="Gradient accumulation steps")
-    parser.add_argument("--checkpoint_dir", type=str, default=config.CHECKPOINT_DIR, help="Checkpoint directory")
+    parser.add_argument("--epochs", type=int, default=100, help="Number of epochs")
+    parser.add_argument("--lr", type=float, default=Config.lr, help="Learning rate")
+    parser.add_argument("--weight_decay", type=float, default=Config.weight_decay, help="Weight decay")
+    parser.add_argument("--grad_accum_steps", type=int, default=1, help="Gradient accumulation steps")
+    parser.add_argument("--checkpoint_dir", type=str, default=Config.checkpoint_dir, help="Checkpoint directory")
     parser.add_argument("--resume", action="store_true", help="Resume training from checkpoint")
-    parser.add_argument("--seed", type=int, default=config.SEED, help="Random seed")
-    parser.add_argument("--val_check_interval", type=float, default=config.VAL_CHECK_INTERVAL, 
-                        help="Validation check interval (in epochs)")
+    parser.add_argument("--seed", type=int, default=42, help="Random seed")
+    parser.add_argument("--val_check_interval", type=float, default=0.25, help="Validation check interval (in epochs)")
     
     # Logging parameters
-    parser.add_argument("--log_dir", type=str, default="logs", help="Log directory")
+    parser.add_argument("--log_dir", type=str, default=Config.log_dir, help="Log directory")
     parser.add_argument("--log_every", type=int, default=100, help="Log metrics every N steps")
     parser.add_argument("--save_every", type=int, default=1000, help="Save checkpoint every N steps")
     
@@ -122,19 +119,19 @@ def train_epoch(model, train_loader, optimizer, scheduler, epoch, args, writer, 
         
         # Random emotion indices (1-8) or None
         if random.random() < 0.5:
-            emotion_idx = torch.randint(0, 8, (batch_size,), device=config.DEVICE)
+            emotion_idx = torch.randint(0, 8, (batch_size,), device=Config.device)
         else:
             emotion_idx = None
             
         # Random style indices (1-10) or None
         if random.random() < 0.5:
-            style_idx = torch.randint(0, 10, (batch_size,), device=config.DEVICE)
+            style_idx = torch.randint(0, 10, (batch_size,), device=Config.device)
         else:
             style_idx = None
             
         # Random genre indices (1-10) or None
         if random.random() < 0.5:
-            genre_idx = torch.randint(0, 10, (batch_size,), device=config.DEVICE)
+            genre_idx = torch.randint(0, 10, (batch_size,), device=Config.device)
         else:
             genre_idx = None
             
@@ -268,8 +265,8 @@ def validate(model, val_loader, epoch, args, writer, step):
             sample = samples[i].cpu().numpy()
             
             # Visualize spectrograms
-            for j, instrument in enumerate(config.INSTRUMENTS):
-                sample_instrument = sample[j * config.LATENT_DIM:(j+1) * config.LATENT_DIM]
+            for j, instrument in enumerate(Config.instruments):
+                sample_instrument = sample[j * Config.latent_dim:(j+1) * Config.latent_dim]
                 
                 # Save spectrograms
                 sample_path = os.path.join(args.log_dir, f"samples/epoch_{epoch}_step_{step}_{instrument}_{i}.png")
@@ -379,7 +376,7 @@ def train(args):
         input_dim=Config.input_dim,
         latent_dim=args.latent_dim,
         hidden_dim=args.hidden_dim
-    ).to(config.DEVICE)
+    ).to(Config.device)
     
     # Create optimizer
     optimizer = optim.Adam(
@@ -390,7 +387,7 @@ def train(args):
     
     # Create learning rate scheduler
     total_steps = len(train_loader) // args.grad_accum_steps * args.epochs
-    warmup_steps = config.WARM_UP_STEPS
+    warmup_steps = int(0.1 * total_steps)  # 10% of total steps for warmup
     
     def lr_lambda(current_step):
         if current_step < warmup_steps:

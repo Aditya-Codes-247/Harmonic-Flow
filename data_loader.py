@@ -132,9 +132,9 @@ class Slakh2100Dataset(Dataset):
     def __init__(
         self, 
         data_dir, 
-        segment_duration=config.SEGMENT_DURATION,
-        sample_rate=config.SAMPLE_RATE,
-        instruments=config.INSTRUMENTS,
+        segment_duration=Config.segment_duration,
+        sample_rate=Config.sample_rate,
+        instruments=Config.instruments,
         transform=None,
         split="train",
         random_segments=True
@@ -296,7 +296,7 @@ class Slakh2100Dataset(Dataset):
 
 def create_dataloader(
     data_dir, 
-    batch_size=config.BATCH_SIZE, 
+    batch_size=Config.batch_size, 
     split="train", 
     num_workers=4, 
     pin_memory=True,
