@@ -4,11 +4,12 @@ import torch.nn.functional as F
 import torchaudio
 import transformers
 from transformers import AutoModel, AutoTokenizer
+from einops import rearrange
+from config.config import Config
 
 import sys
 import os
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-import config
 
 class AudioEncoder(nn.Module):
     """
@@ -16,95 +17,64 @@ class AudioEncoder(nn.Module):
     """
     def __init__(
         self, 
-        input_dim=config.N_MELS, 
-        hidden_dim=config.HIDDEN_DIM,
-        latent_dim=config.LATENT_DIM, 
-        num_layers=4,
-        dropout=config.DROPOUT
+        input_dim=Config.n_mels, 
+        hidden_dim=Config.hidden_dim,
+        latent_dim=Config.latent_dim, 
+        num_layers=6,
+        num_heads=8,
+        dropout=0.1
     ):
         super().__init__()
         
-        # Convolutional layers for processing spectrograms
-        self.conv_layers = nn.ModuleList([
-            nn.Sequential(
-                nn.Conv2d(1 if i == 0 else 2**(i+4), 2**(i+5), kernel_size=3, stride=2, padding=1),
-                nn.BatchNorm2d(2**(i+5)),
-                nn.LeakyReLU(0.2),
-                nn.Dropout2d(dropout)
-            ) for i in range(num_layers)
-        ])
+        self.input_dim = input_dim
+        self.hidden_dim = hidden_dim
+        self.latent_dim = latent_dim
         
-        # Calculate output size after conv layers
-        self.calc_conv_output_dim = self._get_conv_output_dim(input_dim)
+        # Input projection
+        self.input_proj = nn.Linear(input_dim, hidden_dim)
         
-        # Linear layers
-        self.linear_layers = nn.Sequential(
-            nn.Linear(self.calc_conv_output_dim, hidden_dim),
-            nn.LeakyReLU(0.2),
-            nn.Dropout(dropout),
-            nn.Linear(hidden_dim, latent_dim)
+        # Positional encoding
+        self.pos_encoder = nn.Parameter(torch.randn(1, 1000, hidden_dim))
+        
+        # Transformer encoder layers
+        encoder_layer = nn.TransformerEncoderLayer(
+            d_model=hidden_dim,
+            nhead=num_heads,
+            dim_feedforward=hidden_dim * 4,
+            dropout=dropout,
+            activation='gelu'
         )
+        self.transformer = nn.TransformerEncoder(encoder_layer, num_layers=num_layers)
         
-        # Tempo, rhythm, pitch, and timbre-specific branches
-        self.tempo_branch = nn.Linear(hidden_dim, 64)  # Tempo features
-        self.pitch_branch = nn.Linear(hidden_dim, 128)  # Pitch features
-        self.timbre_branch = nn.Linear(hidden_dim, 128)  # Timbre features
-        self.rhythm_branch = nn.Linear(hidden_dim, 128)  # Rhythm features
+        # Output projection
+        self.output_proj = nn.Linear(hidden_dim, latent_dim)
         
-    def _get_conv_output_dim(self, input_dim):
-        """Calculate output dimensions after conv layers."""
-        # Create a sample input to determine output size
-        sample_input = torch.zeros(1, 1, input_dim, 400)  # Assuming 400 time frames
-        
-        # Pass through conv layers
-        x = sample_input
-        for conv in self.conv_layers:
-            x = conv(x)
-        
-        return x.numel()
-    
     def forward(self, x):
         """
         Forward pass.
         
         Args:
-            x: Input spectrogram tensor of shape (batch_size, time, freq)
-        
+            x: Input tensor of shape (batch_size, seq_len, input_dim)
+            
         Returns:
-            latent: Latent representation
-            features: Dict containing tempo, pitch, timbre, and rhythm features
+            Latent representation of shape (batch_size, latent_dim)
         """
-        # Ensure correct input shape (batch, channels, freq, time)
-        if len(x.shape) == 3:  # (batch, freq, time)
-            x = x.unsqueeze(1)
+        # Project input
+        x = self.input_proj(x)
         
-        # Pass through conv layers
-        for conv in self.conv_layers:
-            x = conv(x)
+        # Add positional encoding
+        x = x + self.pos_encoder[:, :x.size(1)]
         
-        # Flatten
-        x = x.view(x.size(0), -1)
+        # Pass through transformer
+        x = self.transformer(x)
         
-        # Pass through linear layers
-        x = self.linear_layers[0](x)  # Get hidden representation
+        # Global average pooling
+        x = x.mean(dim=1)
         
-        # Branch-specific features
-        tempo_features = self.tempo_branch(x)
-        pitch_features = self.pitch_branch(x)
-        timbre_features = self.timbre_branch(x)
-        rhythm_features = self.rhythm_branch(x)
+        # Project to latent space
+        x = self.output_proj(x)
         
-        # Final latent representation
-        latent = self.linear_layers[1:](x)
-        
-        features = {
-            'tempo': tempo_features,
-            'pitch': pitch_features,
-            'timbre': timbre_features,
-            'rhythm': rhythm_features
-        }
-        
-        return latent, features
+        return x
 
 
 class TextEncoder(nn.Module):
@@ -115,9 +85,9 @@ class TextEncoder(nn.Module):
     def __init__(
         self, 
         model_name="distilbert-base-uncased",
-        latent_dim=config.LATENT_DIM,
+        latent_dim=Config.latent_dim,
         max_length=128,
-        dropout=config.DROPOUT
+        dropout=0.1
     ):
         super().__init__()
         
@@ -182,8 +152,8 @@ class VisualEncoder(nn.Module):
     def __init__(
         self, 
         model_name="google/vit-base-patch16-224",
-        latent_dim=config.LATENT_DIM,
-        dropout=config.DROPOUT
+        latent_dim=Config.latent_dim,
+        dropout=0.1
     ):
         super().__init__()
         
@@ -229,80 +199,203 @@ class VisualEncoder(nn.Module):
         return latent
 
 
+class EmotionEncoder(nn.Module):
+    """Encoder for emotion labels."""
+    
+    def __init__(
+        self,
+        num_emotions=8,
+        hidden_dim=Config.hidden_dim,
+        latent_dim=Config.latent_dim,
+        dropout=0.1
+    ):
+        super().__init__()
+        
+        self.embedding = nn.Embedding(num_emotions, hidden_dim)
+        self.proj = nn.Linear(hidden_dim, latent_dim)
+        self.dropout = nn.Dropout(dropout)
+        
+    def forward(self, x):
+        """
+        Forward pass.
+        
+        Args:
+            x: Emotion indices of shape (batch_size,)
+            
+        Returns:
+            Latent representation of shape (batch_size, latent_dim)
+        """
+        x = self.embedding(x)
+        x = self.dropout(x)
+        x = self.proj(x)
+        return x
+
+
+class StyleEncoder(nn.Module):
+    """Encoder for style labels."""
+    
+    def __init__(
+        self,
+        num_styles=10,
+        hidden_dim=Config.hidden_dim,
+        latent_dim=Config.latent_dim,
+        dropout=0.1
+    ):
+        super().__init__()
+        
+        self.embedding = nn.Embedding(num_styles, hidden_dim)
+        self.proj = nn.Linear(hidden_dim, latent_dim)
+        self.dropout = nn.Dropout(dropout)
+        
+    def forward(self, x):
+        """
+        Forward pass.
+        
+        Args:
+            x: Style indices of shape (batch_size,)
+            
+        Returns:
+            Latent representation of shape (batch_size, latent_dim)
+        """
+        x = self.embedding(x)
+        x = self.dropout(x)
+        x = self.proj(x)
+        return x
+
+
+class GenreEncoder(nn.Module):
+    """Encoder for genre labels."""
+    
+    def __init__(
+        self,
+        num_genres=10,
+        hidden_dim=Config.hidden_dim,
+        latent_dim=Config.latent_dim,
+        dropout=0.1
+    ):
+        super().__init__()
+        
+        self.embedding = nn.Embedding(num_genres, hidden_dim)
+        self.proj = nn.Linear(hidden_dim, latent_dim)
+        self.dropout = nn.Dropout(dropout)
+        
+    def forward(self, x):
+        """
+        Forward pass.
+        
+        Args:
+            x: Genre indices of shape (batch_size,)
+            
+        Returns:
+            Latent representation of shape (batch_size, latent_dim)
+        """
+        x = self.embedding(x)
+        x = self.dropout(x)
+        x = self.proj(x)
+        return x
+
+
 class MultiModalEncoder(nn.Module):
     """
     Multi-modal encoder that combines audio, text, and visual encoders.
     """
     def __init__(
         self,
-        audio_encoder=None,
-        text_encoder=None,
-        visual_encoder=None,
-        latent_dim=config.LATENT_DIM,
-        dropout=config.DROPOUT
+        input_dim=Config.n_mels,
+        hidden_dim=Config.hidden_dim,
+        latent_dim=Config.latent_dim,
+        num_emotions=8,
+        num_styles=10,
+        num_genres=10,
+        dropout=0.1
     ):
         super().__init__()
         
-        # Initialize encoders if not provided
-        self.audio_encoder = audio_encoder if audio_encoder else AudioEncoder(latent_dim=latent_dim)
-        self.text_encoder = text_encoder if text_encoder else TextEncoder(latent_dim=latent_dim)
-        self.visual_encoder = visual_encoder if visual_encoder else None
+        self.audio_encoder = AudioEncoder(
+            input_dim=input_dim,
+            hidden_dim=hidden_dim,
+            latent_dim=latent_dim,
+            dropout=dropout
+        )
         
-        # Fusion layer to combine multi-modal embeddings
+        self.emotion_encoder = EmotionEncoder(
+            num_emotions=num_emotions,
+            hidden_dim=hidden_dim,
+            latent_dim=latent_dim,
+            dropout=dropout
+        )
+        
+        self.style_encoder = StyleEncoder(
+            num_styles=num_styles,
+            hidden_dim=hidden_dim,
+            latent_dim=latent_dim,
+            dropout=dropout
+        )
+        
+        self.genre_encoder = GenreEncoder(
+            num_genres=num_genres,
+            hidden_dim=hidden_dim,
+            latent_dim=latent_dim,
+            dropout=dropout
+        )
+        
+        # Fusion layer
         self.fusion = nn.Sequential(
-            nn.Linear(latent_dim * (2 if visual_encoder else 1), latent_dim),
-            nn.LayerNorm(latent_dim),
-            nn.LeakyReLU(0.2),
-            nn.Dropout(dropout)
+            nn.Linear(latent_dim * 4, hidden_dim),
+            nn.GELU(),
+            nn.Dropout(dropout),
+            nn.Linear(hidden_dim, latent_dim)
         )
     
-    def forward(self, audio=None, text=None, image=None):
+    def forward(
+        self,
+        audio,
+        emotion_idx=None,
+        style_idx=None,
+        genre_idx=None
+    ):
         """
         Forward pass.
         
         Args:
-            audio: Audio tensor
-            text: Text prompts
-            image: Image tensor
-        
+            audio: Audio input of shape (batch_size, seq_len, input_dim)
+            emotion_idx: Optional emotion indices of shape (batch_size,)
+            style_idx: Optional style indices of shape (batch_size,)
+            genre_idx: Optional genre indices of shape (batch_size,)
+            
         Returns:
-            latent: Fused latent representation
-            features: Dict containing audio features
+            Combined latent representation of shape (batch_size, latent_dim)
         """
-        audio_latent, audio_features = None, None
-        text_latent, image_latent = None, None
+        # Encode audio
+        audio_latent = self.audio_encoder(audio)
         
-        # Get audio embeddings if provided
-        if audio is not None:
-            audio_latent, audio_features = self.audio_encoder(audio)
+        # Initialize emotion, style, and genre latents as zeros
+        batch_size = audio.size(0)
+        device = audio.device
         
-        # Get text embeddings if provided
-        if text is not None and self.text_encoder is not None:
-            text_latent = self.text_encoder(text)
+        emotion_latent = torch.zeros(batch_size, self.audio_encoder.latent_dim, device=device)
+        style_latent = torch.zeros(batch_size, self.audio_encoder.latent_dim, device=device)
+        genre_latent = torch.zeros(batch_size, self.audio_encoder.latent_dim, device=device)
         
-        # Get image embeddings if provided
-        if image is not None and self.visual_encoder is not None:
-            image_latent = self.visual_encoder(image)
-        
-        # Fuse embeddings if multiple modalities are provided
-        latents_to_fuse = []
-        
-        if audio_latent is not None:
-            latents_to_fuse.append(audio_latent)
-        
-        if text_latent is not None:
-            latents_to_fuse.append(text_latent)
+        # Encode conditional inputs if provided
+        if emotion_idx is not None:
+            emotion_latent = self.emotion_encoder(emotion_idx)
             
-        if image_latent is not None:
-            latents_to_fuse.append(image_latent)
-        
-        if len(latents_to_fuse) > 1:
-            # Concatenate latents
-            combined_latent = torch.cat(latents_to_fuse, dim=1)
+        if style_idx is not None:
+            style_latent = self.style_encoder(style_idx)
             
-            # Fuse latents
-            fused_latent = self.fusion(combined_latent)
-        else:
-            fused_latent = latents_to_fuse[0] if latents_to_fuse else None
+        if genre_idx is not None:
+            genre_latent = self.genre_encoder(genre_idx)
         
-        return fused_latent, audio_features 
+        # Concatenate all latents
+        combined = torch.cat([
+            audio_latent,
+            emotion_latent,
+            style_latent,
+            genre_latent
+        ], dim=-1)
+        
+        # Fuse latents
+        fused = self.fusion(combined)
+        
+        return fused 
