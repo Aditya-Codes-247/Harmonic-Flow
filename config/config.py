@@ -17,6 +17,8 @@ class Config:
     input_dim = 128  # Number of mel bands
     latent_dim = 256
     hidden_dim = 512
+    num_heads = 8
+    dropout = 0.1
     
     # Audio parameters
     sample_rate = 44100
@@ -53,4 +55,5 @@ class Config:
     INSTRUMENTS = instruments
     LATENT_DIM = latent_dim
     HIDDEN_DIM = hidden_dim
-    N_MELS = n_mels 
+    N_MELS = n_mels
+    DROPOUT = dropout 
