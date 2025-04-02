@@ -18,6 +18,7 @@ class Config:
     n_fft = 2048
     hop_length = 512
     n_mels = 128
+    segment_duration = 4.0  # Duration in seconds
     
     # Dataset parameters
     instruments = ['bass', 'drums', 'guitar', 'piano']
@@ -27,6 +28,14 @@ class Config:
     checkpoint_dir = 'checkpoints'
     log_dir = 'logs'
     plot_dir = 'plots'
+    
+    # Constants for backwards compatibility
+    SEGMENT_DURATION = 4.0
+    SAMPLE_RATE = 44100
+    BATCH_SIZE = 32
+    INSTRUMENTS = ['bass', 'drums', 'guitar', 'piano']
+    LATENT_DIM = 256
+    HIDDEN_DIM = 512
     
     # Device
     device = 'cuda' if torch.cuda.is_available() else 'cpu' 

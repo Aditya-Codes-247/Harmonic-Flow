@@ -8,20 +8,58 @@ from pathlib import Path
 import json
 import librosa
 
-import config
 from utils import load_audio, extract_features, compute_mel_spectrogram, get_track_dirs, get_project_root
 from config.config import Config
 
 class AudioTransforms:
-    def __init__(self):
-        self.sample_rate = Config.sample_rate
-        self.n_fft = Config.n_fft
-        self.hop_length = Config.hop_length
-        self.n_mels = Config.n_mels
+    def __init__(self, sample_rate=Config.sample_rate, p=0.5):
+        """Initialize audio transforms."""
+        self.sample_rate = sample_rate
+        self.p = p
+        
+    def time_stretch(self, audio, rate_range=(0.8, 1.2)):
+        """Apply time stretching."""
+        if random.random() < self.p:
+            rate = random.uniform(*rate_range)
+            audio_np = audio.squeeze().numpy()
+            stretched = librosa.effects.time_stretch(audio_np, rate=rate)
+            
+            # Ensure output length is same as input
+            if len(stretched) > len(audio_np):
+                stretched = stretched[:len(audio_np)]
+            else:
+                stretched = np.pad(stretched, (0, max(0, len(audio_np) - len(stretched))))
+                
+            return torch.tensor(stretched, dtype=torch.float).unsqueeze(0)
+        return audio
     
-    def __call__(self, waveform):
-        # Apply any audio transformations here
-        return waveform
+    def pitch_shift(self, audio, n_steps_range=(-2, 2)):
+        """Apply pitch shifting."""
+        if random.random() < self.p:
+            n_steps = random.uniform(*n_steps_range)
+            audio_np = audio.squeeze().numpy()
+            shifted = librosa.effects.pitch_shift(
+                audio_np, 
+                sr=self.sample_rate, 
+                n_steps=n_steps
+            )
+            return torch.tensor(shifted, dtype=torch.float).unsqueeze(0)
+        return audio
+    
+    def add_noise(self, audio, noise_level_range=(0.001, 0.005)):
+        """Add random noise."""
+        if random.random() < self.p:
+            noise_level = random.uniform(*noise_level_range)
+            noise = torch.randn_like(audio) * noise_level
+            return audio + noise
+        return audio
+    
+    def __call__(self, audio):
+        """Apply transformations."""
+        audio = self.time_stretch(audio)
+        audio = self.pitch_shift(audio)
+        audio = self.add_noise(audio)
+        return audio
 
 class SlakhDataset(Dataset):
     def __init__(self, data_dir, split='train', transform=None):
@@ -66,7 +104,7 @@ class SlakhDataset(Dataset):
             'path': str(mixed_path)
         }
 
-def create_dataloader(data_dir, batch_size, split='train', num_workers=4, drop_last=True):
+def create_dataloader(data_dir, batch_size=Config.batch_size, split='train', num_workers=4, drop_last=True):
     """Create data loader for the Slakh2100 dataset."""
     # Get project root to handle paths correctly
     project_root = get_project_root()
@@ -280,56 +318,4 @@ def create_dataloader(
         drop_last=drop_last
     )
     
-    return dataloader
-
-class AudioTransforms:
-    """Audio transformation class for data augmentation."""
-    
-    def __init__(self, sample_rate=config.SAMPLE_RATE, p=0.5):
-        """Initialize audio transforms."""
-        self.sample_rate = sample_rate
-        self.p = p
-        
-    def time_stretch(self, audio, rate_range=(0.8, 1.2)):
-        """Apply time stretching."""
-        if random.random() < self.p:
-            rate = random.uniform(*rate_range)
-            audio_np = audio.squeeze().numpy()
-            stretched = librosa.effects.time_stretch(audio_np, rate=rate)
-            
-            # Ensure output length is same as input
-            if len(stretched) > len(audio_np):
-                stretched = stretched[:len(audio_np)]
-            else:
-                stretched = np.pad(stretched, (0, max(0, len(audio_np) - len(stretched))))
-                
-            return torch.tensor(stretched, dtype=torch.float).unsqueeze(0)
-        return audio
-    
-    def pitch_shift(self, audio, n_steps_range=(-2, 2)):
-        """Apply pitch shifting."""
-        if random.random() < self.p:
-            n_steps = random.uniform(*n_steps_range)
-            audio_np = audio.squeeze().numpy()
-            shifted = librosa.effects.pitch_shift(
-                audio_np, 
-                sr=self.sample_rate, 
-                n_steps=n_steps
-            )
-            return torch.tensor(shifted, dtype=torch.float).unsqueeze(0)
-        return audio
-    
-    def add_noise(self, audio, noise_level_range=(0.001, 0.005)):
-        """Add random noise."""
-        if random.random() < self.p:
-            noise_level = random.uniform(*noise_level_range)
-            noise = torch.randn_like(audio) * noise_level
-            return audio + noise
-        return audio
-    
-    def __call__(self, audio):
-        """Apply transformations."""
-        audio = self.time_stretch(audio)
-        audio = self.pitch_shift(audio)
-        audio = self.add_noise(audio)
-        return audio 
+    return dataloader 

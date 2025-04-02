@@ -20,7 +20,7 @@ import json
 import config
 from data_loader import create_dataloader, AudioTransforms
 from models.harmonicflow import HarmonicFlow
-from utils import set_seed, save_checkpoint, load_checkpoint, log_metrics, visualize_spectrogram
+from utils import set_seed, save_checkpoint, load_checkpoint, log_metrics, visualize_spectrogram, get_project_root
 from utils.data_loader import SlakhDataset
 from config.config import Config
 
@@ -322,7 +322,8 @@ def evaluate_model(model, val_loader, criterion, device):
     with torch.no_grad():
         for batch in val_loader:
             # Move data to device
-            batch = {k: v.to(device) for k, v in batch.items()}
+            batch = {k: v.to(device) if isinstance(v, torch.Tensor) else v 
+                    for k, v in batch.items()}
             
             # Forward pass
             outputs = model(batch['mixed_audio'])
@@ -375,15 +376,15 @@ def train(args):
     
     # Create model
     model = HarmonicFlow(
+        input_dim=Config.input_dim,
         latent_dim=args.latent_dim,
         hidden_dim=args.hidden_dim
     ).to(config.DEVICE)
     
     # Create optimizer
-    optimizer = optim.AdamW(
+    optimizer = optim.Adam(
         model.parameters(),
         lr=args.lr,
-        betas=config.ADAM_BETAS,
         weight_decay=args.weight_decay
     )
     
