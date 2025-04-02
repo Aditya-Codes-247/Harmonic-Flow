@@ -8,93 +8,131 @@ import numpy as np
 import sys
 import os
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-import config
+from config.config import Config
 from utils import extract_features
 
 class SourceSeparationBlock(nn.Module):
     """
-    Source separation block to separate audio into constituent tracks.
-    This implementation provides a basic UNet-based approach for source separation.
-    In a production environment, you would integrate a pre-trained model like Demucs.
+    Source separation block that separates audio into different instrument tracks.
+    Uses a U-Net architecture with attention mechanisms.
     """
     def __init__(
         self,
         input_channels=1,
-        output_channels=len(config.INSTRUMENTS),
+        output_channels=len(Config.instruments),
         base_channels=32,
-        depth=5
+        num_layers=4,
+        dropout=0.1
     ):
         super().__init__()
         
-        # Encoder (downsampling)
-        self.encoder = nn.ModuleList()
-        self.encoder.append(nn.Conv2d(input_channels, base_channels, kernel_size=7, padding=3))
+        self.input_channels = input_channels
+        self.output_channels = output_channels
+        self.base_channels = base_channels
+        self.num_layers = num_layers
         
-        for i in range(depth - 1):
-            in_channels = base_channels * (2 ** i)
-            out_channels = base_channels * (2 ** (i + 1))
-            self.encoder.append(
+        # Encoder path
+        self.encoder_blocks = nn.ModuleList()
+        current_channels = input_channels
+        
+        for i in range(num_layers):
+            out_channels = base_channels * (2 ** i)
+            self.encoder_blocks.append(
                 nn.Sequential(
+                    nn.Conv2d(current_channels, out_channels, 3, padding=1),
+                    nn.BatchNorm2d(out_channels),
                     nn.LeakyReLU(0.2),
-                    nn.Conv2d(in_channels, out_channels, kernel_size=4, stride=2, padding=1),
-                    nn.BatchNorm2d(out_channels)
+                    nn.Conv2d(out_channels, out_channels, 3, padding=1),
+                    nn.BatchNorm2d(out_channels),
+                    nn.LeakyReLU(0.2),
+                    nn.Dropout2d(dropout)
+                )
+            )
+            current_channels = out_channels
+        
+        # Decoder path
+        self.decoder_blocks = nn.ModuleList()
+        self.attention_blocks = nn.ModuleList()
+        
+        for i in range(num_layers - 1, -1, -1):
+            in_channels = base_channels * (2 ** (i + 1))
+            out_channels = base_channels * (2 ** i)
+            
+            self.decoder_blocks.append(
+                nn.Sequential(
+                    nn.ConvTranspose2d(in_channels, out_channels, 4, stride=2, padding=1),
+                    nn.BatchNorm2d(out_channels),
+                    nn.LeakyReLU(0.2),
+                    nn.Conv2d(out_channels, out_channels, 3, padding=1),
+                    nn.BatchNorm2d(out_channels),
+                    nn.LeakyReLU(0.2),
+                    nn.Dropout2d(dropout)
+                )
+            )
+            
+            # Attention block
+            self.attention_blocks.append(
+                nn.Sequential(
+                    nn.Conv2d(out_channels * 2, out_channels, 1),
+                    nn.BatchNorm2d(out_channels),
+                    nn.LeakyReLU(0.2),
+                    nn.Conv2d(out_channels, out_channels, 1),
+                    nn.Sigmoid()
                 )
             )
         
-        # Decoder (upsampling)
-        self.decoder = nn.ModuleList()
-        for i in range(depth - 1):
-            in_channels = base_channels * (2 ** (depth - i - 1))
-            out_channels = base_channels * (2 ** (depth - i - 2))
-            self.decoder.append(
-                nn.Sequential(
-                    nn.LeakyReLU(0.2),
-                    nn.ConvTranspose2d(in_channels * 2, out_channels, kernel_size=4, stride=2, padding=1),
-                    nn.BatchNorm2d(out_channels)
-                )
-            )
+        # Final output layer
+        self.final_conv = nn.Conv2d(base_channels, output_channels, 1)
         
-        # Final layer
-        self.final = nn.Sequential(
-            nn.LeakyReLU(0.2),
-            nn.Conv2d(base_channels * 2, output_channels, kernel_size=7, padding=3),
-            nn.Tanh()
-        )
-        
+        # Initialize weights
+        self.apply(self._init_weights)
+    
+    def _init_weights(self, m):
+        if isinstance(m, nn.Conv2d) or isinstance(m, nn.ConvTranspose2d):
+            nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='leaky_relu')
+            if m.bias is not None:
+                nn.init.constant_(m.bias, 0)
+        elif isinstance(m, nn.BatchNorm2d):
+            nn.init.constant_(m.weight, 1)
+            nn.init.constant_(m.bias, 0)
+    
     def forward(self, x):
         """
         Forward pass.
         
         Args:
-            x: Input mixed audio spectrogram of shape (batch_size, channels, freq, time)
+            x: Input tensor of shape (batch_size, channels, height, width)
             
         Returns:
-            separated: Dictionary of separated tracks
+            Separated instrument tracks of shape (batch_size, num_instruments, height, width)
         """
-        # Store encoder outputs for skip connections
+        # Encoder path
         encoder_outputs = []
+        current = x
         
-        # Encoder forward pass
-        for enc_layer in self.encoder:
-            x = enc_layer(x)
-            encoder_outputs.append(x)
+        for encoder_block in self.encoder_blocks:
+            current = encoder_block(current)
+            encoder_outputs.append(current)
+            if current.size(2) > 2:  # Don't downsample if too small
+                current = F.max_pool2d(current, 2)
         
-        # Decoder forward pass with skip connections
-        for i, dec_layer in enumerate(self.decoder):
-            skip_connection = encoder_outputs[-(i + 2)]  # Skip connection from encoder
-            x = torch.cat([x, skip_connection], dim=1)  # Concatenate along channel dimension
-            x = dec_layer(x)
+        # Decoder path
+        current = encoder_outputs[-1]
         
-        # Final layer
-        x = torch.cat([x, encoder_outputs[0]], dim=1)  # Skip connection from first encoder layer
-        mask = self.final(x)  # (batch_size, num_instruments, freq, time)
+        for i, (decoder_block, attention_block) in enumerate(zip(self.decoder_blocks, self.attention_blocks)):
+            # Upsample
+            current = decoder_block(current)
+            
+            # Skip connection with attention
+            if i < len(encoder_outputs) - 1:
+                skip = encoder_outputs[-(i + 2)]
+                attention = attention_block(torch.cat([current, skip], 1))
+                current = current * attention + skip * (1 - attention)
         
-        # Apply mask to input to get separated sources
-        separated = {}
-        for i, instrument in enumerate(config.INSTRUMENTS):
-            separated[instrument] = mask[:, i:i+1, :, :] * x
+        # Final output
+        output = self.final_conv(current)
         
-        return separated
+        return output
 
 
 class FeatureExtractor(nn.Module):
@@ -103,9 +141,9 @@ class FeatureExtractor(nn.Module):
     """
     def __init__(
         self,
-        input_dim=config.N_MELS,
-        hidden_dim=config.HIDDEN_DIM,
-        dropout=config.DROPOUT
+        input_dim=Config.n_mels,
+        hidden_dim=Config.hidden_dim,
+        dropout=Config.dropout
     ):
         super().__init__()
         
@@ -215,11 +253,11 @@ class TemporalAnalyzer(nn.Module):
     """
     def __init__(
         self,
-        input_dim=config.LATENT_DIM,
-        hidden_dim=config.HIDDEN_DIM,
+        input_dim=Config.latent_dim,
+        hidden_dim=Config.hidden_dim,
         num_layers=4,
-        num_heads=config.NUM_HEADS,
-        dropout=config.DROPOUT
+        num_heads=Config.num_heads,
+        dropout=Config.dropout
     ):
         super().__init__()
         
@@ -306,10 +344,10 @@ class PreProcessingModule(nn.Module):
             # Compute spectrogram
             spectrogram = librosa.feature.melspectrogram(
                 y=audio_np.squeeze()[0] if len(audio_np.shape) > 1 else audio_np,
-                sr=config.SAMPLE_RATE,
-                n_fft=config.N_FFT,
-                hop_length=config.HOP_LENGTH,
-                n_mels=config.N_MELS
+                sr=Config.sample_rate,
+                n_fft=Config.n_fft,
+                hop_length=Config.hop_length,
+                n_mels=Config.n_mels
             )
             
             # Convert to log scale
