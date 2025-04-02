@@ -15,12 +15,14 @@ from sklearn.metrics import confusion_matrix, accuracy_score
 import pickle
 import logging
 from datetime import datetime
+import json
 
 import config
 from data_loader import create_dataloader, AudioTransforms
 from models.harmonicflow import HarmonicFlow
 from utils import set_seed, save_checkpoint, load_checkpoint, log_metrics, visualize_spectrogram
 from utils.data_loader import SlakhDataset
+from config.config import Config
 
 # Set up logging
 logging.basicConfig(
@@ -31,6 +33,40 @@ logging.basicConfig(
         logging.StreamHandler()
     ]
 )
+
+# Custom logger class to replace TensorBoard
+class Logger:
+    def __init__(self, log_dir='logs'):
+        self.log_dir = log_dir
+        os.makedirs(log_dir, exist_ok=True)
+        self.metrics = {}
+        self.current_epoch = 0
+        
+    def add_scalar(self, tag, value, step):
+        if tag not in self.metrics:
+            self.metrics[tag] = []
+        self.metrics[tag].append((step, value))
+        
+    def close(self):
+        # Save metrics to JSON file
+        with open(os.path.join(self.log_dir, 'metrics.json'), 'w') as f:
+            json.dump(self.metrics, f)
+        
+        # Plot metrics
+        self.plot_metrics()
+    
+    def plot_metrics(self):
+        os.makedirs('plots', exist_ok=True)
+        
+        for tag, values in self.metrics.items():
+            steps, vals = zip(*values)
+            plt.figure(figsize=(10, 6))
+            plt.plot(steps, vals)
+            plt.title(tag)
+            plt.xlabel('Step')
+            plt.ylabel('Value')
+            plt.savefig(os.path.join('plots', f'{tag.replace("/", "_")}.png'))
+            plt.close()
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Train HarmonicFlow model")
@@ -289,15 +325,15 @@ def evaluate_model(model, val_loader, criterion, device):
             batch = {k: v.to(device) for k, v in batch.items()}
             
             # Forward pass
-            outputs = model(batch)
-            loss = criterion(outputs, batch['target'])
+            outputs = model(batch['mixed_audio'])
+            loss = criterion(outputs, batch['mixed_audio'])
             
             total_loss += loss.item()
             
             # Collect predictions and targets
-            predictions = outputs.argmax(dim=1)
-            all_predictions.extend(predictions.cpu().numpy())
-            all_targets.extend(batch['target'].cpu().numpy())
+            predictions = outputs.argmax(dim=1) if outputs.dim() > 1 else outputs
+            all_predictions.extend(predictions.cpu().numpy().flatten())
+            all_targets.extend(batch['mixed_audio'].cpu().numpy().flatten())
     
     # Calculate metrics
     accuracy = accuracy_score(all_targets, all_predictions)
