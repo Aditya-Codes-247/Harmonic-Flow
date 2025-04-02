@@ -147,12 +147,12 @@ class HierarchicalAttention(nn.Module):
     """
     def __init__(
         self,
-        input_dim=Config.LATENT_DIM,
-        hidden_dim=Config.HIDDEN_DIM,
-        output_dim=Config.LATENT_DIM,
-        num_heads=Config.NUM_HEADS,
+        input_dim=Config.latent_dim,
+        hidden_dim=Config.hidden_dim,
+        output_dim=Config.latent_dim,
+        num_heads=Config.num_heads,
         num_layers=4,
-        dropout=Config.DROPOUT
+        dropout=Config.dropout
     ):
         super().__init__()
         
@@ -275,11 +275,11 @@ class EmotionAwareLayer(nn.Module):
     """
     def __init__(
         self,
-        input_dim=Config.LATENT_DIM,
+        input_dim=Config.latent_dim,
         emotion_dim=8,  # 8 basic emotions
-        hidden_dim=Config.HIDDEN_DIM,
-        output_dim=Config.LATENT_DIM,
-        dropout=Config.DROPOUT
+        hidden_dim=Config.hidden_dim,
+        output_dim=Config.latent_dim,
+        dropout=Config.dropout
     ):
         super().__init__()
         
@@ -368,13 +368,13 @@ class MultiTrackDiffusionModel(nn.Module):
     """
     def __init__(
         self,
-        input_dim=Config.LATENT_DIM,
-        hidden_dim=Config.HIDDEN_DIM,
-        num_steps=Config.DIFFUSION_STEPS,
+        input_dim=Config.latent_dim,
+        hidden_dim=Config.hidden_dim,
+        num_steps=Config.diffusion_steps,
         beta_schedule="linear",
-        num_instruments=len(Config.INSTRUMENTS),
+        num_instruments=len(Config.instruments),
         seq_length=128,
-        dropout=Config.DROPOUT
+        dropout=Config.dropout
     ):
         super().__init__()
         
@@ -386,7 +386,7 @@ class MultiTrackDiffusionModel(nn.Module):
         
         # Set up diffusion schedule
         if beta_schedule == "linear":
-            betas = torch.linspace(Config.DIFFUSION_BETAS[0], Config.DIFFUSION_BETAS[1], num_steps)
+            betas = torch.linspace(Config.diffusion_betas[0], Config.diffusion_betas[1], num_steps)
         elif beta_schedule == "cosine":
             # Cosine schedule as proposed in https://arxiv.org/abs/2102.09672
             steps = num_steps + 1
@@ -467,7 +467,7 @@ class MultiTrackDiffusionModel(nn.Module):
         self.hierarchical_attention = HierarchicalAttention(
             input_dim=input_dim,
             output_dim=input_dim,
-            num_heads=Config.NUM_HEADS
+            num_heads=Config.num_heads
         )
         
         # Emotion-aware layer
