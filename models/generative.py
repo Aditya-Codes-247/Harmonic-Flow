@@ -7,7 +7,7 @@ import math
 import sys
 import os
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-import config
+from config.config import Config
 
 class SinusoidalPositionEmbeddings(nn.Module):
     """
@@ -29,26 +29,32 @@ class SinusoidalPositionEmbeddings(nn.Module):
 
 class AttentionBlock(nn.Module):
     """
-    Multi-head attention block.
+    Self-attention block for processing sequential data.
     """
     def __init__(
         self,
-        dim,
-        num_heads=config.NUM_HEADS,
-        dim_head=64,
-        dropout=config.DROPOUT
+        dim=Config.latent_dim,
+        num_heads=Config.num_heads,
+        dropout=Config.dropout
     ):
         super().__init__()
-        inner_dim = dim_head * num_heads
+        
         self.num_heads = num_heads
-        self.scale = dim_head ** -0.5
-
-        self.to_qkv = nn.Linear(dim, inner_dim * 3, bias=False)
-        self.to_out = nn.Sequential(
-            nn.Linear(inner_dim, dim),
-            nn.Dropout(dropout)
-        )
-
+        self.head_dim = dim // num_heads
+        self.scale = self.head_dim ** -0.5
+        
+        # Query, key, value projections
+        self.qkv = nn.Linear(dim, dim * 3)
+        
+        # Output projection
+        self.proj = nn.Linear(dim, dim)
+        
+        # Dropout
+        self.dropout = nn.Dropout(dropout)
+        
+        # Layer normalization
+        self.norm = nn.LayerNorm(dim)
+    
     def forward(self, x):
         """
         Forward pass.
@@ -57,18 +63,28 @@ class AttentionBlock(nn.Module):
             x: Input tensor of shape (batch_size, seq_len, dim)
             
         Returns:
-            out: Output tensor of shape (batch_size, seq_len, dim)
+            Output tensor of shape (batch_size, seq_len, dim)
         """
-        b, n, d = x.shape
-        qkv = self.to_qkv(x).chunk(3, dim=-1)
-        q, k, v = map(lambda t: t.reshape(b, n, self.num_heads, -1).transpose(1, 2), qkv)
-
-        dots = torch.matmul(q, k.transpose(-1, -2)) * self.scale
+        # Layer normalization
+        x = self.norm(x)
+        
+        # Project to query, key, value
+        qkv = self.qkv(x).chunk(3, dim=-1)
+        q, k, v = map(lambda t: rearrange(t, 'b n (h d) -> b h n d', h=self.num_heads), qkv)
+        
+        # Compute attention scores
+        dots = torch.matmul(q, k.transpose(-2, -1)) * self.scale
+        
+        # Apply softmax
         attn = F.softmax(dots, dim=-1)
-
+        attn = self.dropout(attn)
+        
+        # Apply attention to values
         out = torch.matmul(attn, v)
-        out = out.transpose(1, 2).reshape(b, n, -1)
-        out = self.to_out(out)
+        out = rearrange(out, 'b h n d -> b n (h d)')
+        
+        # Project output
+        out = self.proj(out)
         
         return out
 
@@ -85,7 +101,7 @@ class ConvBlock(nn.Module):
         stride=1,
         padding=1,
         use_norm=True,
-        dropout=config.DROPOUT
+        dropout=Config.dropout
     ):
         super().__init__()
         
@@ -131,12 +147,12 @@ class HierarchicalAttention(nn.Module):
     """
     def __init__(
         self,
-        input_dim=config.LATENT_DIM,
-        hidden_dim=config.HIDDEN_DIM,
-        output_dim=config.LATENT_DIM,
-        num_heads=config.NUM_HEADS,
+        input_dim=Config.LATENT_DIM,
+        hidden_dim=Config.HIDDEN_DIM,
+        output_dim=Config.LATENT_DIM,
+        num_heads=Config.NUM_HEADS,
         num_layers=4,
-        dropout=config.DROPOUT
+        dropout=Config.DROPOUT
     ):
         super().__init__()
         
@@ -259,11 +275,11 @@ class EmotionAwareLayer(nn.Module):
     """
     def __init__(
         self,
-        input_dim=config.LATENT_DIM,
+        input_dim=Config.LATENT_DIM,
         emotion_dim=8,  # 8 basic emotions
-        hidden_dim=config.HIDDEN_DIM,
-        output_dim=config.LATENT_DIM,
-        dropout=config.DROPOUT
+        hidden_dim=Config.HIDDEN_DIM,
+        output_dim=Config.LATENT_DIM,
+        dropout=Config.DROPOUT
     ):
         super().__init__()
         
@@ -352,13 +368,13 @@ class MultiTrackDiffusionModel(nn.Module):
     """
     def __init__(
         self,
-        input_dim=config.LATENT_DIM,
-        hidden_dim=config.HIDDEN_DIM,
-        num_steps=config.DIFFUSION_STEPS,
+        input_dim=Config.LATENT_DIM,
+        hidden_dim=Config.HIDDEN_DIM,
+        num_steps=Config.DIFFUSION_STEPS,
         beta_schedule="linear",
-        num_instruments=len(config.INSTRUMENTS),
+        num_instruments=len(Config.INSTRUMENTS),
         seq_length=128,
-        dropout=config.DROPOUT
+        dropout=Config.DROPOUT
     ):
         super().__init__()
         
@@ -370,7 +386,7 @@ class MultiTrackDiffusionModel(nn.Module):
         
         # Set up diffusion schedule
         if beta_schedule == "linear":
-            betas = torch.linspace(config.DIFFUSION_BETAS[0], config.DIFFUSION_BETAS[1], num_steps)
+            betas = torch.linspace(Config.DIFFUSION_BETAS[0], Config.DIFFUSION_BETAS[1], num_steps)
         elif beta_schedule == "cosine":
             # Cosine schedule as proposed in https://arxiv.org/abs/2102.09672
             steps = num_steps + 1
@@ -451,7 +467,7 @@ class MultiTrackDiffusionModel(nn.Module):
         self.hierarchical_attention = HierarchicalAttention(
             input_dim=input_dim,
             output_dim=input_dim,
-            num_heads=config.NUM_HEADS
+            num_heads=Config.NUM_HEADS
         )
         
         # Emotion-aware layer
@@ -630,53 +646,108 @@ class MultiTrackDiffusionModel(nn.Module):
 
 class GenerativeModule(nn.Module):
     """
-    Complete generative module integrating multi-track diffusion, hierarchical attention,
-    and emotion-aware generation.
+    Generative module that generates audio from latent representations.
+    Uses a transformer-based architecture with self-attention.
     """
     def __init__(
         self,
-        diffusion_model=None,
-        input_dim=config.LATENT_DIM,
-        hidden_dim=config.HIDDEN_DIM,
-        num_instruments=len(config.INSTRUMENTS),
-        seq_length=128,
-        dropout=config.DROPOUT
+        input_dim=Config.latent_dim,
+        hidden_dim=Config.hidden_dim,
+        num_layers=6,
+        num_heads=Config.num_heads,
+        dropout=Config.dropout
     ):
         super().__init__()
         
-        self.diffusion_model = diffusion_model if diffusion_model else MultiTrackDiffusionModel(
-            input_dim=input_dim,
-            hidden_dim=hidden_dim,
-            num_instruments=num_instruments,
-            seq_length=seq_length,
-            dropout=dropout
-        )
+        self.input_dim = input_dim
+        self.hidden_dim = hidden_dim
+        self.num_layers = num_layers
+        
+        # Input projection
+        self.input_proj = nn.Linear(input_dim, hidden_dim)
+        
+        # Positional encoding
+        self.pos_encoder = nn.Parameter(torch.randn(1, 1000, hidden_dim))
+        
+        # Transformer layers
+        self.layers = nn.ModuleList([
+            nn.Sequential(
+                AttentionBlock(hidden_dim, num_heads, dropout),
+                nn.Linear(hidden_dim, hidden_dim * 4),
+                nn.GELU(),
+                nn.Dropout(dropout),
+                nn.Linear(hidden_dim * 4, hidden_dim)
+            )
+            for _ in range(num_layers)
+        ])
+        
+        # Output projection
+        self.output_proj = nn.Linear(hidden_dim, input_dim)
+        
+        # Initialize weights
+        self.apply(self._init_weights)
     
-    def forward(self, latent, timesteps, instrument_idx=None, emotion_idx=None):
+    def _init_weights(self, m):
+        if isinstance(m, nn.Linear):
+            nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
+            if m.bias is not None:
+                nn.init.constant_(m.bias, 0)
+        elif isinstance(m, nn.LayerNorm):
+            nn.init.constant_(m.weight, 1)
+            nn.init.constant_(m.bias, 0)
+    
+    def forward(self, x):
         """
         Forward pass.
         
         Args:
-            latent: Latent representation
-            timesteps: Diffusion timesteps
-            instrument_idx: Optional instrument indices
-            emotion_idx: Optional emotion indices
+            x: Input tensor of shape (batch_size, seq_len, input_dim)
             
         Returns:
-            output: Model output
+            Output tensor of shape (batch_size, seq_len, input_dim)
         """
-        return self.diffusion_model(latent, timesteps, instrument_idx, emotion_idx)
+        # Project input
+        x = self.input_proj(x)
+        
+        # Add positional encoding
+        x = x + self.pos_encoder[:, :x.size(1)]
+        
+        # Pass through transformer layers
+        for layer in self.layers:
+            x = x + layer(x)
+        
+        # Project to output space
+        x = self.output_proj(x)
+        
+        return x
     
-    def generate(self, batch_size=1, instrument_idx=None, emotion_idx=None):
+    def generate(self, z, max_length=1000):
         """
-        Generate new samples.
+        Generate audio from latent representation.
         
         Args:
-            batch_size: Number of samples to generate
-            instrument_idx: Optional instrument indices
-            emotion_idx: Optional emotion indices
+            z: Latent tensor of shape (batch_size, input_dim)
+            max_length: Maximum sequence length to generate
             
         Returns:
-            samples: Generated samples
+            Generated audio tensor of shape (batch_size, max_length, input_dim)
         """
-        return self.diffusion_model.sample(batch_size, instrument_idx, emotion_idx) 
+        batch_size = z.size(0)
+        device = z.device
+        
+        # Initialize output tensor
+        output = torch.zeros(batch_size, max_length, self.input_dim, device=device)
+        
+        # Set first token to latent representation
+        output[:, 0] = z
+        
+        # Generate tokens autoregressively
+        for t in range(1, max_length):
+            # Get current sequence
+            current = output[:, :t]
+            
+            # Generate next token
+            next_token = self.forward(current)
+            output[:, t] = next_token[:, -1]
+        
+        return output 
