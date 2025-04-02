@@ -9,7 +9,84 @@ import json
 import librosa
 
 import config
-from utils import load_audio, extract_features, compute_mel_spectrogram, get_track_dirs
+from utils import load_audio, extract_features, compute_mel_spectrogram, get_track_dirs, get_project_root
+from config.config import Config
+
+class AudioTransforms:
+    def __init__(self):
+        self.sample_rate = Config.sample_rate
+        self.n_fft = Config.n_fft
+        self.hop_length = Config.hop_length
+        self.n_mels = Config.n_mels
+    
+    def __call__(self, waveform):
+        # Apply any audio transformations here
+        return waveform
+
+class SlakhDataset(Dataset):
+    def __init__(self, data_dir, split='train', transform=None):
+        self.data_dir = Path(data_dir)
+        self.split = split
+        self.transform = transform
+        
+        # Get all track directories
+        self.track_dirs = get_track_dirs(self.data_dir, split)
+        
+        # Load instrument mappings
+        self.instruments = Config.instruments
+    
+    def __len__(self):
+        return len(self.track_dirs)
+    
+    def __getitem__(self, idx):
+        track_dir = self.track_dirs[idx]
+        
+        # Load mixed audio
+        mixed_path = track_dir / 'mixed' / 'audio.wav'
+        mixed_audio = load_audio(mixed_path, Config.sample_rate)
+        
+        # Load individual instrument audio
+        audio_dict = {}
+        for instrument in self.instruments:
+            instrument_path = track_dir / instrument / 'audio.wav'
+            if instrument_path.exists():
+                audio = load_audio(instrument_path, Config.sample_rate)
+                audio_dict[instrument] = audio
+        
+        # Apply transforms if any
+        if self.transform:
+            mixed_audio = self.transform(mixed_audio)
+            for instrument in audio_dict:
+                audio_dict[instrument] = self.transform(audio_dict[instrument])
+        
+        return {
+            'mixed_audio': mixed_audio,
+            'audio': audio_dict,
+            'sample_rate': Config.sample_rate,
+            'path': str(mixed_path)
+        }
+
+def create_dataloader(data_dir, batch_size, split='train', num_workers=4, drop_last=True):
+    """Create data loader for the Slakh2100 dataset."""
+    # Get project root to handle paths correctly
+    project_root = get_project_root()
+    data_dir = project_root / data_dir
+    
+    # Create dataset
+    transform = AudioTransforms()
+    dataset = SlakhDataset(data_dir, split=split, transform=transform)
+    
+    # Create data loader
+    loader = DataLoader(
+        dataset,
+        batch_size=batch_size,
+        shuffle=(split == 'train'),
+        num_workers=num_workers,
+        drop_last=drop_last,
+        pin_memory=True
+    )
+    
+    return loader
 
 class Slakh2100Dataset(Dataset):
     """Dataset for Slakh2100 multi-track audio."""
