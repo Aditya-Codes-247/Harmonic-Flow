@@ -55,7 +55,9 @@ TEXT_EMBEDDING_DIM = 768
 VISUAL_EMBEDDING_DIM = 1024
 
 # Diffusion model settings
-DIFFUSION_STEPS = 1000
+# Add this to your Config class if it exists
+class Config:
+    diffusion_steps = 1000  # Add this line with an appropriate value
 DIFFUSION_BETAS = (1e-4, 0.02)
 
 # Post-processing parameters
@@ -67,4 +69,4 @@ REVERB_SETTINGS = {
 }
 
 # Create necessary directories
-os.makedirs(CHECKPOINT_DIR, exist_ok=True) 
+os.makedirs(CHECKPOINT_DIR, exist_ok=True)

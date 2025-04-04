@@ -370,7 +370,8 @@ class MultiTrackDiffusionModel(nn.Module):
         self,
         input_dim=Config.latent_dim,
         hidden_dim=Config.hidden_dim,
-        num_steps=Config.diffusion_steps,
+        # Replace Config.diffusion_steps with a default value or the correct config reference
+        num_steps=1000,  # Changed from Config.diffusion_steps to a default value
         beta_schedule="linear",
         num_instruments=len(Config.instruments),
         seq_length=128,
@@ -750,4 +751,4 @@ class GenerativeModule(nn.Module):
             next_token = self.forward(current)
             output[:, t] = next_token[:, -1]
         
-        return output 
+        return output
