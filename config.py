@@ -55,8 +55,7 @@ TEXT_EMBEDDING_DIM = 768
 VISUAL_EMBEDDING_DIM = 1024
 
 # Diffusion model settings
-# Define diffusion_steps at the module level instead of in a Config class
-diffusion_steps = 1000  # This can now be accessed as config.diffusion_steps
+diffusion_steps = 1000
 DIFFUSION_BETAS = (1e-4, 0.02)
 
 # Post-processing parameters
@@ -69,3 +68,35 @@ REVERB_SETTINGS = {
 
 # Create necessary directories
 os.makedirs(CHECKPOINT_DIR, exist_ok=True)
+
+# Add this class to make the config accessible in both ways
+class Config:
+    LATENT_DIM = LATENT_DIM
+    NUM_HEADS = NUM_HEADS
+    NUM_LAYERS = NUM_LAYERS
+    HIDDEN_DIM = HIDDEN_DIM
+    DROPOUT = DROPOUT
+    LEARNING_RATE = LEARNING_RATE
+    ADAM_BETAS = ADAM_BETAS
+    WEIGHT_DECAY = WEIGHT_DECAY
+    BATCH_SIZE = BATCH_SIZE
+    NUM_EPOCHS = NUM_EPOCHS
+    GRADIENT_ACCUMULATION_STEPS = GRADIENT_ACCUMULATION_STEPS
+    WARM_UP_STEPS = WARM_UP_STEPS
+    VAL_CHECK_INTERVAL = VAL_CHECK_INTERVAL
+    CHECKPOINT_DIR = CHECKPOINT_DIR
+    DEVICE = DEVICE
+    SEED = SEED
+    INSTRUMENTS = INSTRUMENTS
+    FEATURE_KEYS = FEATURE_KEYS
+    TEXT_EMBEDDING_DIM = TEXT_EMBEDDING_DIM
+    VISUAL_EMBEDDING_DIM = VISUAL_EMBEDDING_DIM
+    diffusion_steps = diffusion_steps
+    DIFFUSION_BETAS = DIFFUSION_BETAS
+    REVERB_SETTINGS = REVERB_SETTINGS
+    SAMPLE_RATE = SAMPLE_RATE
+    HOP_LENGTH = HOP_LENGTH
+    N_FFT = N_FFT
+    N_MELS = N_MELS
+    SEGMENT_DURATION = SEGMENT_DURATION
+    AUDIO_LENGTH = AUDIO_LENGTH
