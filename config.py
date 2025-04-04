@@ -55,9 +55,8 @@ TEXT_EMBEDDING_DIM = 768
 VISUAL_EMBEDDING_DIM = 1024
 
 # Diffusion model settings
-# Add this to your Config class if it exists
-class Config:
-    diffusion_steps = 1000  # Add this line with an appropriate value
+# Define diffusion_steps at the module level instead of in a Config class
+diffusion_steps = 1000  # This can now be accessed as config.diffusion_steps
 DIFFUSION_BETAS = (1e-4, 0.02)
 
 # Post-processing parameters
