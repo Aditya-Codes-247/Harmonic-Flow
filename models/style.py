@@ -15,7 +15,8 @@ class StyleTransferModule(nn.Module):
     """
     def __init__(
         self,
-        input_dim=config.LATENT_DIM,
+        # Replace config.LATENT_DIM with a direct value or import correctly
+        input_dim=256,  # Changed from config.LATENT_DIM to the default value
         style_dim=128,
         hidden_dim=config.HIDDEN_DIM,
         num_styles=10,  # Number of pre-defined styles
@@ -560,4 +561,4 @@ class StyleAndPostProcessingModule(nn.Module):
                 'spatial_audio': spatial_audio
             }
             
-            return spatial_audio, outputs 
+            return spatial_audio, outputs
