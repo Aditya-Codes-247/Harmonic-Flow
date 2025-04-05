@@ -417,7 +417,7 @@ class SpatialAudioRenderer(nn.Module):
     """
     def __init__(
         self,
-        input_channels=len(config.INSTRUMENTS),
+        input_channels=len(INSTRUMENTS),  # Changed from config.INSTRUMENTS to our fallback variable
         output_channels=2,  # Stereo output (left and right)
         hidden_dim=64,
         num_azimuth=12,  # Angular resolution (number of azimuth positions)
