@@ -140,7 +140,7 @@ class AdaINResBlock(nn.Module):
         self,
         input_dim,
         style_dim,
-        dropout=config.DROPOUT
+        dropout=DROPOUT  # Changed from config.DROPOUT to our fallback variable
     ):
         super().__init__()
         
@@ -192,10 +192,10 @@ class GenreAdaptiveLayer(nn.Module):
     """
     def __init__(
         self,
-        input_dim=config.LATENT_DIM,
-        hidden_dim=config.HIDDEN_DIM,
+        input_dim=LATENT_DIM,  # Changed from config.LATENT_DIM
+        hidden_dim=HIDDEN_DIM,  # Changed from config.HIDDEN_DIM
         num_genres=10,
-        dropout=config.DROPOUT
+        dropout=DROPOUT  # Changed from config.DROPOUT
     ):
         super().__init__()
         
@@ -275,12 +275,12 @@ class PostProcessingGAN(nn.Module):
     """
     def __init__(
         self,
-        input_channels=len(config.INSTRUMENTS),
+        input_channels=len(INSTRUMENTS),  # Changed from config.INSTRUMENTS
         hidden_dim=64,
-        output_channels=len(config.INSTRUMENTS) + 1,  # +1 for mixed output
+        output_channels=len(INSTRUMENTS) + 1,  # +1 for mixed output
         kernel_size=7,
         num_layers=6,
-        dropout=config.DROPOUT
+        dropout=DROPOUT  # Changed from config.DROPOUT
     ):
         super().__init__()
         
@@ -537,7 +537,7 @@ class StyleAndPostProcessingModule(nn.Module):
         genre_adaptive=None,
         post_processing=None,
         spatial_renderer=None,
-        input_dim=config.LATENT_DIM
+        input_dim=LATENT_DIM  # Changed from config.LATENT_DIM
     ):
         super().__init__()
         
@@ -562,7 +562,7 @@ class StyleAndPostProcessingModule(nn.Module):
             outputs: Dictionary of intermediate outputs
         """
         # Apply style transfer if input is in latent space
-        if len(x.shape) == 2 or (len(x.shape) == 3 and x.shape[1] == config.LATENT_DIM):
+        if len(x.shape) == 2 or (len(x.shape) == 3 and x.shape[1] == LATENT_DIM):  # Changed from config.LATENT_DIM
             # Input is in latent form
             stylized = self.style_transfer(x, reference_style, style_idx, interpolation_weight)
             genre_adapted = self.genre_adaptive(stylized, genre_idx)
