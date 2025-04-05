@@ -159,8 +159,8 @@ class Slakh2100Dataset(Dataset):
         self.split = split
         self.random_segments = random_segments
         
-        # Get track directories
-        self.track_dirs = get_track_dirs(self.data_dir / split)
+        # Get track directories - FIX: Don't append split to data_dir, just pass the data_dir
+        self.track_dirs = get_track_dirs(self.data_dir, split)
         print(f"Found {len(self.track_dirs)} tracks in {split} set.")
         
         # Pre-compute metadata for faster loading
@@ -318,4 +318,4 @@ def create_dataloader(
         drop_last=drop_last
     )
     
-    return dataloader 
+    return dataloader
