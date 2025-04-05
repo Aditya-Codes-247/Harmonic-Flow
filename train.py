@@ -339,6 +339,7 @@ def evaluate_model(model, val_loader, criterion, device):
     
     return avg_loss, accuracy, all_predictions, all_targets
 
+# Add this near the beginning of the train function
 def train(args):
     # Set random seeds
     set_seed(args.seed)
@@ -505,4 +506,4 @@ def train(args):
 
 if __name__ == "__main__":
     args = parse_args()
-    train(args) 
+    train(args)
