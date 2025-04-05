@@ -8,6 +8,33 @@ import os
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import config
 
+# Define default values in case config attributes are not available
+DEFAULT_LATENT_DIM = 256
+DEFAULT_HIDDEN_DIM = 1024
+DEFAULT_DROPOUT = 0.1
+DEFAULT_INSTRUMENTS = ["bass", "drums", "guitar", "piano"]
+
+# Try to get values from config, fall back to defaults if not available
+try:
+    LATENT_DIM = config.LATENT_DIM
+except AttributeError:
+    LATENT_DIM = DEFAULT_LATENT_DIM
+
+try:
+    HIDDEN_DIM = config.HIDDEN_DIM
+except AttributeError:
+    HIDDEN_DIM = DEFAULT_HIDDEN_DIM
+
+try:
+    DROPOUT = config.DROPOUT
+except AttributeError:
+    DROPOUT = DEFAULT_DROPOUT
+
+try:
+    INSTRUMENTS = config.INSTRUMENTS
+except AttributeError:
+    INSTRUMENTS = DEFAULT_INSTRUMENTS
+
 class StyleTransferModule(nn.Module):
     """
     Style transfer module that can apply stylistic characteristics of specific
@@ -15,12 +42,11 @@ class StyleTransferModule(nn.Module):
     """
     def __init__(
         self,
-        # Replace config.LATENT_DIM with a direct value or import correctly
-        input_dim=256,  # Changed from config.LATENT_DIM to the default value
+        input_dim=LATENT_DIM,  # Using our fallback variable instead of direct config access
         style_dim=128,
-        hidden_dim=config.HIDDEN_DIM,
+        hidden_dim=HIDDEN_DIM,  # Using our fallback variable instead of direct config access
         num_styles=10,  # Number of pre-defined styles
-        dropout=config.DROPOUT
+        dropout=DROPOUT  # Using our fallback variable instead of direct config access
     ):
         super().__init__()
         
